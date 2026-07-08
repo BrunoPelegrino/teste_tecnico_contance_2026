@@ -122,6 +122,12 @@ real de uso (usuário de RH dando duplo clique no `.exe`).
   genéricas, para que `main()` diferencie erros conhecidos (mensagem amigável)
   de falhas inesperadas (rede de segurança final, sem traceback exposto).
 
+## 10. Aba de Erros na Planilha
+
+Foi adotada a estratégia de não interromper todo o processamento quando forem encontrados erros em registros específicos da planilha. Dessa forma, o RH consegue obter o relatório dos colaboradores com dados válidos, mesmo que existam inconsistências em parte da base.
+Os colaboradores que apresentarem erros de validação não são processados para o cálculo do vale-refeição e são registrados na aba Erros, contendo a linha da planilha, os dados do colaborador e a descrição da inconsistência encontrada.
+Essa abordagem evita que um único erro impeça o processamento de toda a folha, permitindo que o RH corrija apenas os registros inconsistentes e execute novamente o robô posteriormente.
+
 ## Limitações conhecidas
 - Não lê arquivos `.xls` antigos (apenas `.xlsx`), pois o enunciado especifica
   esse formato.
