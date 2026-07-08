@@ -22,16 +22,7 @@ pelo argumento `--data-ref`.
 convertida para número, para preservar zeros à esquerda (ex.: `001`).
 Confirmado no arquivo real fornecido, onde os valores já vêm como texto.
 
-## 3. Normalização do setor "Logística"
-
-A comparação para aplicar R$ 35,00/dia usa `.strip().lower()` antes de
-comparar com `"logística"` (com acento). **Limitação assumida**: se o RH
-digitar "Logistica" sem acento em um mês futuro, o robô vai classificar como
-"demais setores" (R$ 30,00/dia), pois não implementei normalização de
-acentuação (unicodedata). Isso não ocorreu nos dados de teste fornecidos,
-mas é um ponto de melhoria futura listado abaixo.
-
-## 3.1 Setores desconhecidos
+## 3 Setores desconhecidos
 
 Mantive uma constante `SETORES_CONHECIDOS` (Logística, RH, TI, Financeiro,
 Comercial — os setores observados no cadastro real fornecido). Se aparecer um
@@ -42,6 +33,9 @@ digitação (ex.: "Comercail" em vez de "Comercial"). Tratei como aviso, e não
 erro fatal, porque a regra de negócio já define um valor-padrão para
 qualquer setor que não seja Logística — travar a execução seria mais
 rígido do que o próprio enunciado exige.
+
+
+
 
 ## 4. Arredondamento monetário
 
@@ -87,24 +81,7 @@ tenta, nesta ordem: (1) o caminho informado relativo ao diretório de trabalho
 atual e (2) a mesma pasta do script/executável. Isso satisfaz o requisito do
 `.exe` sem prejudicar o uso normal via CLI.
 
-## 8. Executável `.exe`
-
-PyInstaller não permite cross-compilation: um `.exe` Windows só pode ser
-gerado rodando o PyInstaller **em um Windows real**. O ambiente usado para
-desenvolver e validar esta solução é Linux, portanto o binário gerado aqui é
-um executável ELF Linux — validado e funcional, mas **não é um `.exe`**.
-
-Optei por **não** incluir um arquivo renomeado `robo_vr.exe` que na verdade
-é um binário Linux, pois isso seria enganoso e não funcionaria na máquina do
-avaliador. Em vez disso, documentei no `README.md` o comando exato
-(`pyinstaller --onefile robo_vr.py`) para gerar o `.exe` verdadeiro em um
-Windows, e testei esse mesmo fluxo de empacotamento localmente (com o
-binário Linux equivalente, `dist/robo_vr`) para garantir que o comando e o
-código funcionam ponta a ponta sem erros de empacotamento — inclusive a
-lógica de localizar `colaboradores.xlsx` ao lado do executável, via
-`sys.frozen`/`sys.executable`.
-
-## 8.1 Experiência do terminal: pausas de progresso e espera antes de sair
+## 8 Experiência do terminal: pausas de progresso e espera antes de sair
 
 Dois ajustes feitos após teste real no Windows, onde o `.exe` fechava a
 janela imediatamente ao terminar (sucesso ou erro), impedindo o usuário de
@@ -146,22 +123,26 @@ real de uso (usuário de RH dando duplo clique no `.exe`).
   de falhas inesperadas (rede de segurança final, sem traceback exposto).
 
 ## Limitações conhecidas
-
-- Não trata acentuação alternativa de nomes de setor (ver item 3).
-- Não valida duplicidade de matrícula/nome (assume que o arquivo de entrada
-  já vem sem duplicatas, pois essa validação não estava no escopo do
-  enunciado).
 - Não lê arquivos `.xls` antigos (apenas `.xlsx`), pois o enunciado especifica
   esse formato.
 - Arredondamento monetário usa o padrão do Python, sem regra bancária
   específica (ver item 4).
 
 ## Melhorias futuras
-
-- Normalizar acentuação na comparação de setores (`unicodedata.normalize`).
+- Dias Úteis avaliar uma forma para validar dias úteis
 - Externalizar valores de VR por setor e o percentual de desconto em um
   arquivo de configuração (`config.json` ou variáveis de ambiente), em vez de
   constantes fixas no código, para facilitar reajustes sem alterar o script.
 - Adicionar log em arquivo (`logging`), além do console, para auditoria em
   produção.
-- Validar duplicidade de matrícula como erro estrutural.
+- Otimizar o código para milhares de colaboradores por ex reduzir consumo de memória, considerar utilizar pandas etc.
+- Adicionar testes automatizados
+- Considerar utilizar um DB
+- testes de integração para validar:
+leitura da planilha;
+geração do Excel;
+tratamento de arquivos inválidos;
+ausência de colunas obrigatórias;
+datas inválidas;
+arquivo inexistente.
+de forma que qualquer alteração futura nas regras de negócio poderia ser validada automaticamente antes da publicação.

@@ -47,7 +47,7 @@ Se algum dado tiver um problema não fatal (ex.: setor não cadastrado, data de
 admissão futura), o robô continua o processamento e mostra avisos como:
 
 ```
-  [AVISO] Linha 7 (Fulano de Tal): setor 'Marketing' não reconhecido na lista de
+  [AVISO] Linha 7 (Colaborador): setor 'Marketing' não reconhecido na lista de
   setores cadastrados (comercial, financeiro, logística, rh, ti) — aplicado
   valor de VR padrão. Verifique se não é erro de digitação.
 ```
@@ -69,23 +69,11 @@ Exemplo, reprocessando um mês fechado:
 python robo_vr.py --data-ref 2026-06-30 --saida relatorio_vr_062026.xlsx
 ```
 
-## Testes
-
-```bash
-python -m unittest test_robo_vr.py -v
-```
-
 ## Como o `.exe` foi (e deve ser) gerado
 
 O executável **precisa ser gerado em uma máquina Windows**, pois o PyInstaller
 não faz cross-compilation: um `.exe` Windows só pode ser produzido rodando o
 PyInstaller a partir de um Windows real (ou uma VM/CI com esse SO).
-
-Este ambiente de desenvolvimento usado para construir e validar a solução é
-Linux, então o binário gerado aqui localmente é um executável **ELF Linux**
-(testado e funcional, mesma lógica), usado apenas para validar que o comando
-de empacotamento funciona de ponta a ponta. Ele **não roda no Windows** e por
-isso não foi incluído como `robo_vr.exe` no repositório — isso seria enganoso.
 
 Para gerar o `.exe` real, rode em um Windows com Python 3.12+ instalado:
 
