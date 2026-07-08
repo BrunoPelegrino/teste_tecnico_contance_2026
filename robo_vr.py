@@ -36,6 +36,7 @@ ZEBRA_FILL_PAR = PatternFill("solid", fgColor="F5EDEC")
 ZEBRA_FILL_IMPAR = PatternFill("solid", fgColor="FFFFFF")
 ALERTA_FILL = PatternFill("solid", fgColor="F8C9C4")
 ALERTA_FONT = Font(bold=True)
+ERRO_FILL = PatternFill("solid", fgColor="FCE4D6")
 CABECALHO_TERMINAL = "=" * 36
 
 
@@ -84,11 +85,21 @@ class ResultadoVR:
 
 
 @dataclass
+class ErroLinha:
+    linha_excel: int
+    matricula: str
+    nome: str
+    campo: str
+    mensagem: str
+
+
+@dataclass
 class Estatisticas:
     total_colaboradores: int = 0
     total_pagar_empresa: Decimal = Decimal("0.00")
     total_alerta_absenteismo: int = 0
     total_em_experiencia: int = 0
+    total_erros: int = 0
     gerado_em: datetime = field(default_factory=datetime.now)
 
 
@@ -98,39 +109,36 @@ def normalizar_texto(valor: Any) -> str:
     return "".join(c for c in texto if not unicodedata.combining(c)).strip().lower()
 
 
-def texto_obrigatorio(valor: Any, campo: str, linha: int) -> str:
-    texto = "" if valor is None else str(valor).strip()
-    if not texto:
-        raise EstruturaInvalidaError(f"Linha {linha}: campo '{campo}' é obrigatório e não pode estar vazio.")
-    return texto
+def texto_simples(valor: Any) -> str:
+    return "" if valor is None else str(valor).strip()
 
 
-def parse_inteiro_nao_negativo(valor: Any, campo: str, linha: int) -> int:
+def erro(linha: int, matricula: str, nome: str, campo: str, mensagem: str) -> ErroLinha:
+    return ErroLinha(linha, matricula or "-", nome or "-", campo, mensagem)
+
+
+def parse_inteiro_nao_negativo(valor: Any, campo: str, linha: int) -> tuple[int | None, str | None]:
     try:
         numero = int(valor)
-    except (TypeError, ValueError) as exc:
-        raise EstruturaInvalidaError(
-            f"Linha {linha}: campo '{campo}' inválido ('{valor}'), esperado número inteiro."
-        ) from exc
+    except (TypeError, ValueError):
+        return None, f"campo '{campo}' inválido ('{valor}'), esperado número inteiro."
     if numero < 0:
-        raise EstruturaInvalidaError(f"Linha {linha}: campo '{campo}' não pode ser negativo ({numero}).")
-    return numero
+        return None, f"campo '{campo}' não pode ser negativo ({numero})."
+    return numero, None
 
 
-def parse_data_admissao(valor: Any, linha: int) -> date:
+def parse_data_admissao(valor: Any, linha: int) -> tuple[date | None, str | None]:
     if isinstance(valor, datetime):
-        return valor.date()
+        return valor.date(), None
     if isinstance(valor, date):
-        return valor
+        return valor, None
     if isinstance(valor, str):
         for formato in ("%Y-%m-%d", "%d/%m/%Y"):
             try:
-                return datetime.strptime(valor.strip(), formato).date()
+                return datetime.strptime(valor.strip(), formato).date(), None
             except ValueError:
                 pass
-    raise EstruturaInvalidaError(
-        f"Linha {linha}: data de admissão inválida ('{valor}'). Use AAAA-MM-DD ou DD/MM/AAAA."
-    )
+    return None, f"data de admissão inválida ('{valor}'). Use AAAA-MM-DD ou DD/MM/AAAA."
 
 
 def caminho_base_execucao() -> Path:
@@ -167,8 +175,9 @@ def validar_estrutura_colunas(ws: Worksheet) -> dict[str, int]:
     return mapa
 
 
-def ler_colaboradores(ws: Worksheet, mapa_colunas: dict[str, int]) -> list[Colaborador]:
+def ler_colaboradores(ws: Worksheet, mapa_colunas: dict[str, int]) -> tuple[list[Colaborador], list[ErroLinha]]:
     colaboradores: list[Colaborador] = []
+    erros: list[ErroLinha] = []
     matriculas_vistas: dict[str, int] = {}
 
     for linha_idx, linha in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -178,34 +187,81 @@ def ler_colaboradores(ws: Worksheet, mapa_colunas: dict[str, int]) -> list[Colab
         def campo(nome: str) -> Any:
             return linha[mapa_colunas[nome] - 1]
 
-        matricula = texto_obrigatorio(campo("matricula"), "matricula", linha_idx)
-        nome = texto_obrigatorio(campo("nome"), "nome", linha_idx)
-        if matricula in matriculas_vistas:
-            raise EstruturaInvalidaError(
-                f"Linha {linha_idx}: matrícula duplicada '{matricula}', já encontrada na linha {matriculas_vistas[matricula]}."
-            )
-        matriculas_vistas[matricula] = linha_idx
+        erros_linha: list[ErroLinha] = []
+        matricula = texto_simples(campo("matricula"))
+        nome = texto_simples(campo("nome"))
 
-        colaborador = Colaborador(
+        if not matricula:
+            erros_linha.append(erro(linha_idx, matricula, nome, "matricula", "matrícula é obrigatória e não pode estar vazia."))
+        elif matricula in matriculas_vistas:
+            erros_linha.append(erro(
+                linha_idx,
+                matricula,
+                nome,
+                "matricula",
+                f"matrícula duplicada; já encontrada na linha {matriculas_vistas[matricula]}.",
+            ))
+        else:
+            matriculas_vistas[matricula] = linha_idx
+
+        if not nome:
+            erros_linha.append(erro(linha_idx, matricula, nome, "nome", "nome é obrigatório e não pode estar vazio."))
+
+        dias_trabalhados, erro_dias = parse_inteiro_nao_negativo(campo("dias_trabalhados"), "dias_trabalhados", linha_idx)
+        dias_uteis_mes, erro_uteis = parse_inteiro_nao_negativo(campo("dias_uteis_mes"), "dias_uteis_mes", linha_idx)
+        faltas, erro_faltas = parse_inteiro_nao_negativo(campo("faltas"), "faltas", linha_idx)
+        atestados, erro_atestados = parse_inteiro_nao_negativo(campo("atestados"), "atestados", linha_idx)
+        admissao, erro_admissao = parse_data_admissao(campo("admissao"), linha_idx)
+
+        for campo_nome, mensagem in [
+            ("dias_trabalhados", erro_dias),
+            ("dias_uteis_mes", erro_uteis),
+            ("faltas", erro_faltas),
+            ("atestados", erro_atestados),
+            ("admissao", erro_admissao),
+        ]:
+            if mensagem:
+                erros_linha.append(erro(linha_idx, matricula, nome, campo_nome, mensagem))
+
+        if dias_trabalhados is not None and dias_uteis_mes is not None:
+            if dias_trabalhados > dias_uteis_mes:
+                erros_linha.append(erro(
+                    linha_idx,
+                    matricula,
+                    nome,
+                    "dias_trabalhados",
+                    f"dias_trabalhados ({dias_trabalhados}) não pode ser maior que dias_uteis_mes ({dias_uteis_mes}).",
+                ))
+
+        if faltas is not None and dias_uteis_mes is not None:
+            if faltas > dias_uteis_mes:
+                erros_linha.append(erro(
+                    linha_idx,
+                    matricula,
+                    nome,
+                    "faltas",
+                    f"faltas ({faltas}) não pode ser maior que dias_uteis_mes ({dias_uteis_mes}).",
+                ))
+
+        if erros_linha:
+            erros.extend(erros_linha)
+            continue
+
+        colaboradores.append(Colaborador(
             linha_excel=linha_idx,
             matricula=matricula,
             nome=nome,
             setor=str(campo("setor") or "").strip(),
-            dias_trabalhados=parse_inteiro_nao_negativo(campo("dias_trabalhados"), "dias_trabalhados", linha_idx),
-            dias_uteis_mes=parse_inteiro_nao_negativo(campo("dias_uteis_mes"), "dias_uteis_mes", linha_idx),
-            faltas=parse_inteiro_nao_negativo(campo("faltas"), "faltas", linha_idx),
-            atestados=parse_inteiro_nao_negativo(campo("atestados"), "atestados", linha_idx),
-            admissao=parse_data_admissao(campo("admissao"), linha_idx),
-        )
-        if colaborador.faltas > colaborador.dias_uteis_mes:
-            raise EstruturaInvalidaError(
-                f"Linha {linha_idx}: faltas ({colaborador.faltas}) não podem ser maiores que dias úteis ({colaborador.dias_uteis_mes})."
-            )
-        colaboradores.append(colaborador)
+            dias_trabalhados=dias_trabalhados,
+            dias_uteis_mes=dias_uteis_mes,
+            faltas=faltas,
+            atestados=atestados,
+            admissao=admissao,
+        ))
 
-    if not colaboradores:
+    if not colaboradores and not erros:
         raise PlanilhaVaziaError("Nenhum colaborador encontrado no arquivo de entrada.")
-    return colaboradores
+    return colaboradores, erros
 
 
 def validar_colaborador(c: Colaborador, data_referencia: date) -> list[str]:
@@ -344,6 +400,7 @@ def montar_aba_resumo(wb: Workbook, stats: Estatisticas) -> None:
         ("Total a pagar pela empresa", stats.total_pagar_empresa),
         ("Total em alerta de absenteísmo", stats.total_alerta_absenteismo),
         ("Total em período de experiência", stats.total_em_experiencia),
+        ("Total de erros de validação", stats.total_erros),
         ("Relatório gerado em", stats.gerado_em.strftime("%d/%m/%Y %H:%M:%S")),
     ]:
         ws.append([rotulo, valor])
@@ -351,10 +408,34 @@ def montar_aba_resumo(wb: Workbook, stats: Estatisticas) -> None:
     ajustar_largura_colunas(ws)
 
 
-def gerar_relatorio_saida(resultados: list[ResultadoVR], stats: Estatisticas, caminho_saida: Path) -> None:
+def montar_aba_erros(wb: Workbook, erros: list[ErroLinha]) -> None:
+    ws = wb.create_sheet("Erros")
+    ws.append(["Linha Excel", "Matrícula", "Nome", "Campo", "Mensagem"])
+    aplicar_estilo_cabecalho(ws)
+
+    if not erros:
+        ws.append(["-", "-", "-", "-", "Nenhum erro de validação encontrado."])
+    else:
+        for linha_idx, item in enumerate(erros, start=2):
+            ws.append([item.linha_excel, item.matricula, item.nome, item.campo, item.mensagem])
+            for celula in ws[linha_idx]:
+                celula.fill = ERRO_FILL
+            ws[f"E{linha_idx}"].alignment = Alignment(wrap_text=True, vertical="top")
+
+    ajustar_largura_colunas(ws)
+    ws.freeze_panes = "A2"
+
+
+def gerar_relatorio_saida(
+    resultados: list[ResultadoVR],
+    stats: Estatisticas,
+    erros: list[ErroLinha],
+    caminho_saida: Path,
+) -> None:
     wb = Workbook()
     montar_aba_detalhamento(wb, resultados)
     montar_aba_resumo(wb, stats)
+    montar_aba_erros(wb, erros)
     try:
         wb.save(caminho_saida)
     except PermissionError as exc:
@@ -383,6 +464,14 @@ def exibir_progresso(mensagem: str) -> None:
     time.sleep(INTERVALO_PROGRESSO_SEGUNDOS)
 
 
+def exibir_erros(erros: list[ErroLinha]) -> None:
+    if not erros:
+        return
+    print("\nErros de validação encontrados:")
+    for item in erros:
+        print(f"  [ERRO] Linha {item.linha_excel} | {item.campo}: {item.mensagem}")
+
+
 def exibir_resumo(stats: Estatisticas, caminho_saida: Path) -> None:
     print(CABECALHO_TERMINAL)
     print(f"Arquivo: {caminho_saida.name}")
@@ -390,6 +479,7 @@ def exibir_resumo(stats: Estatisticas, caminho_saida: Path) -> None:
     print(f"Total a pagar pela empresa: R$ {stats.total_pagar_empresa:,.2f}")
     print(f"Em alerta de absenteísmo: {stats.total_alerta_absenteismo}")
     print(f"Em período de experiência: {stats.total_em_experiencia}")
+    print(f"Erros de validação: {stats.total_erros}")
 
 
 def aguardar_antes_de_sair() -> None:
@@ -411,12 +501,14 @@ def main(argv: list[str] | None = None) -> int:
         exibir_progresso("Lendo arquivo...")
         ws = carregar_planilha(localizar_arquivo_entrada(args.entrada))
         exibir_progresso("Validando colunas...")
-        colaboradores = ler_colaboradores(ws, validar_estrutura_colunas(ws))
+        colaboradores, erros = ler_colaboradores(ws, validar_estrutura_colunas(ws))
+        exibir_erros(erros)
         exibir_progresso("Aplicando regras...")
         resultados, stats = processar_colaboradores(colaboradores, data_referencia)
+        stats.total_erros = len(erros)
         exibir_progresso("Gerando relatório...")
         exibir_progresso("Formatando planilha...")
-        gerar_relatorio_saida(resultados, stats, caminho_saida)
+        gerar_relatorio_saida(resultados, stats, erros, caminho_saida)
         exibir_progresso("Relatório salvo com sucesso.")
         exibir_resumo(stats, caminho_saida)
         aguardar_antes_de_sair()
